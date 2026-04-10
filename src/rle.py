@@ -1,4 +1,3 @@
-from typing import Tuple
 import torch
 
 def rle_to_mask(rle: str, h: int, w: int) -> torch.Tensor:
@@ -7,14 +6,14 @@ def rle_to_mask(rle: str, h: int, w: int) -> torch.Tensor:
 
     s = torch.tensor(list(map(int, rle.split())), dtype=torch.int64)
 
-    starts = s[0::2] - 1 # start from zero
+    starts = s[0::2] - 1
     lengths = s[1::2]
-    ends = starts + lengths
+
+    idx = torch.repeat_interleave(starts, lengths) + \
+          torch.cat([torch.arange(l) for l in lengths])
 
     mask = torch.zeros(h * w, dtype=torch.bool)
-
-    for start, end in zip(starts, ends):
-        mask[start:end] = True
+    mask[idx] = True
 
     return mask.view(w, h).t()
 
