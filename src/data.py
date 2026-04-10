@@ -29,12 +29,12 @@ class AirbusShipDetectionDataset(Dataset):
 
         return image, mask
 
-def loader(root: str) -> DataLoader:
-    mask_path = os.path.join(root, 'data/train_ship_segmentations_v2.csv')
-    img_path = os.path.join(root, 'data/data/train_v2')
+def loader(root: str, batch_size=1, shuffle=False, num_workers=0) -> DataLoader:
+    mask_path = os.path.join(root, 'train_ship_segmentations_v2.csv')
+    img_path = os.path.join(root, 'train_v2')
 
     dataset = AirbusShipDetectionDataset(masks_file=mask_path, img_dir=img_path)
     
-    loader = DataLoader(dataset, batch_size=2)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
     return loader
