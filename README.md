@@ -14,7 +14,7 @@ pip list --not-required --format=freeze > requirements.txt
 
 ### Download `data`
 
-kaggle client is sluggish, use curl with link form site.
+kaggle client is sluggish, use curl with link from site.
 
 ```sh
 export DATA_URL=<url>
