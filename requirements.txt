@@ -1,4 +1,5 @@
 ipykernel==7.2.0
+matplotlib==3.10.8
 nbstripout==0.9.1
 nvidia-cuda-cupti==13.0.85
 nvidia-cuda-nvrtc==13.0.88
