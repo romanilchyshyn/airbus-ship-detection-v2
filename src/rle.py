@@ -1,4 +1,5 @@
 import torch
+from scipy.ndimage import label
 
 def rle_to_mask(rle: str, h: int, w: int) -> torch.Tensor:
     if not rle or not rle.strip():
@@ -34,4 +35,17 @@ def rle_list_to_mask(rles: list[str], h: int, w: int) -> torch.Tensor:
     return mask
 
 def mask_to_rle(mask: torch.Tensor) -> str:
-    pass
+    # transpose + flatten mirrors the .view(w,h).t() in rle_to_mask
+    flat = mask.t().reshape(-1)
+    padded = torch.cat([torch.tensor([False]), flat, torch.tensor([False])])
+    changes = torch.where(padded[1:] != padded[:-1])[0] + 1  # 1-based
+    starts  = changes[0::2]
+    lengths = changes[1::2] - starts
+    
+    return ' '.join(map(str, torch.stack([starts, lengths], dim=1).reshape(-1).tolist()))
+
+def mask_to_rle_list(mask: torch.Tensor) -> list[str]:
+    labeled, n = label(mask.numpy())
+    labeled = torch.from_numpy(labeled)
+
+    return [mask_to_rle(labeled == i) for i in range(1, n + 1)]

@@ -11,4 +11,5 @@ nvidia-cusolver==12.0.4.66
 nvidia-nvtx==13.0.85
 pandas==3.0.2
 pip==25.3
+scipy==1.17.1
 torchvision==0.26.0
