@@ -5,7 +5,7 @@ from torchvision.io import decode_image
 
 import pandas as pd
 
-from .rle import rle_list_to_mask
+from rle import rle_list_to_mask
 
 class AirbusShipDetectionDataset(Dataset):
     def __init__(self, masks_file, img_dir):
@@ -16,6 +16,8 @@ class AirbusShipDetectionDataset(Dataset):
         self.df['EncodedPixels'] = self.df['EncodedPixels'].fillna('')
         
         self.df = self.df.groupby('ImageId')['EncodedPixels'].agg(list).reset_index()
+
+        self.df = self.df.head(10000)
 
     def __len__(self):
         return len(self.df)
@@ -29,7 +31,7 @@ class AirbusShipDetectionDataset(Dataset):
         _, h, w = image.shape
         mask = rle_list_to_mask(rles, h, w)
 
-        return image, mask
+        return (image / 255.), mask.long()
 
 def loader(root: str, batch_size=1, shuffle=False, num_workers=0) -> DataLoader:
     mask_path = os.path.join(root, 'train_ship_segmentations_v2.csv')
