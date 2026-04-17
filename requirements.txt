@@ -12,4 +12,5 @@ nvidia-nvtx==13.0.85
 pandas==3.0.2
 pip==25.3
 scipy==1.17.1
+tensorboard==2.20.0
 torchvision==0.26.0

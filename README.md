@@ -4,6 +4,17 @@
 
 ---
 
+## Train
+
+In project root:
+```sh
+python3 src/train.py --sample=1000 --epochs=30 --batch-size=10 --run-name="tb-$(date +"%Y-%m-%dT%H:%M:%S%z")"
+```
+
+```sh
+tensorboard --logdir=runs --bind_all
+```
+
 ## Dev
 
 Update `requirements.txt` with:
