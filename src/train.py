@@ -3,13 +3,13 @@ import time
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
 from torchvision.models.segmentation import (
     deeplabv3_resnet50,
     DeepLabV3_ResNet50_Weights,
 )
 
-from data import AirbusShipDetectionDataset
+from data import train_val_loader
+from utils import get_device
 
 # ─────────────────────────────────────────────
 # CONFIG  — edit these
@@ -21,7 +21,6 @@ LR             = 1e-4
 WEIGHT_DECAY   = 1e-4
 VAL_SPLIT      = 0.15            # 15% of data used for validation
 CHECKPOINT_DIR = "checkpoints"   # where to save best model
-DEVICE         = "cuda" if torch.cuda.is_available() else "cpu"
 FREEZE_BACKBONE = True           # True = only train the head (faster, less data needed)
                                  # False = train everything (better accuracy, needs more data)
 
@@ -134,28 +133,21 @@ def evaluate(model, loader, criterion, device):
 # MAIN
 # ─────────────────────────────────────────────
 def main():
-    print(f"Device: {DEVICE}")
+    device = get_device()
+    print(f"Device: {device}")
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-    root = 'data'
-    full_dataset = AirbusShipDetectionDataset(
-        img_dir=os.path.join(root, 'train_v2'),
-        masks_file=os.path.join(root, 'train_ship_segmentations_v2.csv')
+    train_loader, val_loader = train_val_loader(
+        'data',
+        val_split=VAL_SPLIT,
+        sample=100,
+        batch_size=BATCH_SIZE
     )
 
-    val_size   = int(len(full_dataset) * VAL_SPLIT)
-    train_size = len(full_dataset) - val_size
-    train_ds, val_ds = random_split(full_dataset, [train_size, val_size])
-
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
-                              num_workers=4, pin_memory=True)
-    val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False,
-                              num_workers=4, pin_memory=True)
-
-    print(f"Train: {train_size} samples  |  Val: {val_size} samples")
+    print(f"Train: {len(train_loader)*BATCH_SIZE} samples  |  Val: {len(val_loader)*BATCH_SIZE} samples")
 
     # ── Model ─────────────────────────────────
-    model = build_model(NUM_CLASSES, freeze_backbone=FREEZE_BACKBONE).to(DEVICE)
+    model = build_model(NUM_CLASSES, freeze_backbone=FREEZE_BACKBONE).to(device)
 
     # ── Optimizer & scheduler ─────────────────
     # Only pass params that require grad
@@ -171,8 +163,8 @@ def main():
     for epoch in range(1, EPOCHS + 1):
         t0 = time.time()
 
-        train_loss            = train_one_epoch(model, train_loader, optimizer, criterion, DEVICE)
-        val_loss, val_iou     = evaluate(model, val_loader, criterion, DEVICE)
+        train_loss            = train_one_epoch(model, train_loader, optimizer, criterion, device)
+        val_loss, val_iou     = evaluate(model, val_loader, criterion, device)
         scheduler.step()
 
         elapsed = time.time() - t0

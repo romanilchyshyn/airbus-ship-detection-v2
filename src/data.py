@@ -1,6 +1,6 @@
 import os
 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision.io import decode_image
 
 import pandas as pd
@@ -8,7 +8,7 @@ import pandas as pd
 from rle import rle_list_to_mask
 
 class AirbusShipDetectionDataset(Dataset):
-    def __init__(self, masks_file, img_dir):
+    def __init__(self, masks_file, img_dir, sample: int|None = None):
         self.masks_file = masks_file
         self.img_dir = img_dir
         
@@ -17,7 +17,8 @@ class AirbusShipDetectionDataset(Dataset):
         
         self.df = self.df.groupby('ImageId')['EncodedPixels'].agg(list).reset_index()
 
-        self.df = self.df.head(10000)
+        if sample: 
+            self.df = self.df.sample(sample).reset_index()
 
     def __len__(self):
         return len(self.df)
@@ -33,12 +34,60 @@ class AirbusShipDetectionDataset(Dataset):
 
         return (image / 255.), mask.long()
 
-def loader(root: str, batch_size=1, shuffle=False, num_workers=0) -> DataLoader:
-    mask_path = os.path.join(root, 'train_ship_segmentations_v2.csv')
-    img_path = os.path.join(root, 'train_v2')
+def dataset(root: str, sample: int|None = None):
+    ds = AirbusShipDetectionDataset(
+        img_dir=os.path.join(root, 'train_v2'),
+        masks_file=os.path.join(root, 'train_ship_segmentations_v2.csv'),
+        sample=sample,
+    )
 
-    dataset = AirbusShipDetectionDataset(masks_file=mask_path, img_dir=img_path)
-    
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    return ds
 
-    return loader
+def loader(
+        root: str, 
+        sample: int|None = None, 
+        batch_size=1, 
+        shuffle=True, 
+        num_workers=4, 
+        pin_memory=True
+    ) -> DataLoader:
+    l = DataLoader(
+        dataset(root, sample=sample),
+        batch_size=batch_size, 
+        shuffle=shuffle, 
+        num_workers=num_workers, 
+        pin_memory=pin_memory
+    )
+
+    return l
+
+def train_val_loader(
+        root: str, 
+        val_split: float, 
+        sample: int|None = None, 
+        batch_size=1, 
+        shuffle=True, 
+        num_workers=4, 
+        pin_memory=True
+    ) -> DataLoader:
+    ds = dataset(root, sample=sample)
+
+    train_ds, val_ds = random_split(ds, [1-val_split, val_split])
+
+    train_loader = DataLoader(
+        train_ds, 
+        batch_size=batch_size, 
+        shuffle=shuffle, 
+        num_workers=num_workers, 
+        pin_memory=pin_memory
+    )
+
+    val_loader = DataLoader(
+        val_ds, 
+        batch_size=batch_size, 
+        shuffle=shuffle, 
+        num_workers=num_workers, 
+        pin_memory=pin_memory
+    )
+
+    return train_loader, val_loader
