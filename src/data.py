@@ -32,7 +32,7 @@ class AirbusShipDetectionDataset(Dataset):
         _, h, w = image.shape
         mask = rle_list_to_mask(rles, h, w)
 
-        return (image / 255.), mask.long()
+        return image, mask
 
 def dataset(root: str, sample: int|None = None):
     ds = AirbusShipDetectionDataset(

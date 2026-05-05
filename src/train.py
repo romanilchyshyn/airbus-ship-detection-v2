@@ -13,7 +13,8 @@ from torchvision.models.segmentation import (
 from data import train_val_loader
 from utils import get_device
 
-NUM_CLASSES = 2  # background + 1 custom class
+CLASSES     = ['ship', 'background']
+NUM_CLASSES = len(CLASSES)
 
 class DiceLoss(nn.Module):
     def __init__(self, smooth: float = 1.0):
@@ -21,10 +22,10 @@ class DiceLoss(nn.Module):
         self.smooth = smooth
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        probs = torch.softmax(logits, dim=1)
+        probs           = torch.softmax(logits, dim=1)
         targets_one_hot = torch.zeros_like(probs).scatter_(1, targets.unsqueeze(1), 1)
-        intersection = (probs * targets_one_hot).sum(dim=(2, 3))
-        union = probs.sum(dim=(2, 3)) + targets_one_hot.sum(dim=(2, 3))
+        intersection    = (probs * targets_one_hot).sum(dim=(2, 3))
+        union           = probs.sum(dim=(2, 3)) + targets_one_hot.sum(dim=(2, 3))
         return 1 - ((2 * intersection + self.smooth) / (union + self.smooth)).mean()
 
 
@@ -57,7 +58,7 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> float:
 # MODEL
 # ─────────────────────────────────────────────
 def build_model(freeze_backbone: bool = True) -> nn.Module:
-    model = deeplabv3_resnet50(weights=DeepLabV3_ResNet50_Weights.COCO_WITH_VOC_LABELS_V1)
+    model = deeplabv3_resnet50(weights=DeepLabV3_ResNet50_Weights.DEFAULT)
     model.classifier[4]     = nn.Conv2d(256, NUM_CLASSES, kernel_size=1)
     model.aux_classifier[4] = nn.Conv2d(256, NUM_CLASSES, kernel_size=1)
 
@@ -84,7 +85,7 @@ def train_one_epoch(
     optimizer.zero_grad()
 
     for i, (images, masks) in enumerate(loader):
-        images, masks = images.to(device), masks.to(device)
+        images, masks = normalize_batch(images, masks, device)
 
         output = model(images)
         loss   = criterion(output["out"], masks)
@@ -118,7 +119,7 @@ def evaluate(
     total_loss = total_iou = 0.0
 
     for images, masks in loader:
-        images, masks = images.to(device), masks.to(device)
+        images, masks = normalize_batch(images, masks, device)
         logits = model(images)["out"]
         total_loss += criterion(logits, masks).item()
         total_iou  += compute_iou(logits.argmax(dim=1).cpu(), masks.cpu())
@@ -130,31 +131,33 @@ def evaluate(
 # ─────────────────────────────────────────────
 # TENSORBOARD HELPERS
 # ─────────────────────────────────────────────
-_IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-_IMAGENET_STD  = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
-
 
 @torch.no_grad()
 def log_predictions(
-    model:   nn.Module,
-    loader:  torch.utils.data.DataLoader,
-    writer:  SummaryWriter,
-    epoch:   int,
-    device:  torch.device,
-    n:       int = 4,
+    model: nn.Module,
+    loader: torch.utils.data.DataLoader,
+    writer: SummaryWriter,
+    epoch: int,
+    device: torch.device,
+    n: int = 1,
 ) -> None:
     model.eval()
-    images, masks = next(iter(loader))
-    images, masks = images[:n].to(device), masks[:n].to(device)
+
+    raw_images, raw_masks = next(iter(loader))
+    raw_images = raw_images[:n]
+    raw_masks = raw_masks[:n]
+
+    images, masks = normalize_batch(raw_images, raw_masks, device)
 
     preds = model(images)["out"].argmax(dim=1)
 
-    imgs_display  = (images.cpu() * _IMAGENET_STD + _IMAGENET_MEAN).clamp(0, 1)
-    preds_display = preds.float().cpu().unsqueeze(1).expand(-1, 3, -1, -1)
-    masks_display = masks.float().cpu().unsqueeze(1).expand(-1, 3, -1, -1)
+    imgs_display = denormalize_images(images).cpu()
 
-    writer.add_images("preview/image",   imgs_display,  epoch)
-    writer.add_images("preview/pred",    preds_display, epoch)
+    preds_display = preds.unsqueeze(1).float().cpu()
+    masks_display = masks.unsqueeze(1).float().cpu()
+
+    writer.add_images("preview/image", imgs_display, epoch)
+    writer.add_images("preview/pred", preds_display, epoch)
     writer.add_images("preview/gt_mask", masks_display, epoch)
 
 
@@ -171,12 +174,43 @@ def log_metrics(
     writer.add_scalar("lr", lr, epoch)
 
 
+IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+IMAGENET_STD  = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+
+def normalize_images(images: torch.Tensor, device: torch.device) -> torch.Tensor:
+    images = images.to(device=device, dtype=torch.float32) / 255.0
+
+    mean = IMAGENET_MEAN.to(device)
+    std = IMAGENET_STD.to(device)
+
+    images = (images - mean) / std
+
+    return images
+
+def denormalize_images(
+    images: torch.Tensor,
+) -> torch.Tensor:
+    mean = IMAGENET_MEAN.to(images.device)
+    std = IMAGENET_STD.to(images.device)
+
+    return (images * std + mean).clamp(0, 1)
+
+def normalize_batch(
+    images: torch.Tensor,
+    masks:  torch.Tensor,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    images = normalize_images(images, device)
+    masks  = masks.long().to(device)
+
+    return images, masks
+
 # ─────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────
 def main() -> None:
-    args   = parse_args()
-    
+    args = parse_args()
+
     device = get_device()
     print(f"Device: {device}")
 
@@ -240,7 +274,7 @@ def main() -> None:
                 "optimizer":   optimizer.state_dict(),
                 "val_iou":     val_iou,
                 "val_loss":    val_loss,
-                "args":        vars(args),   # save full config alongside weights
+                "args":        vars(args),
             }, ckpt_path)
             print(f"  ✓ Saved best model  (mIoU={best_iou:.4f})")
 
@@ -266,7 +300,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--checkpoint-dir", type=str,  default="checkpoints")
     p.add_argument("--log-dir",        type=str,  default="runs")
     p.add_argument("--run-name",       type=str,  default=None)
-    p.add_argument("--log-img-every",  type=int,  default=5)
+    p.add_argument("--log-img-every",  type=int,  default=1)
 
     return p.parse_args()
 
