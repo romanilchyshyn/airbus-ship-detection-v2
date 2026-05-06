@@ -9,6 +9,7 @@ from torchvision.models.segmentation import (
     deeplabv3_resnet50,
     DeepLabV3_ResNet50_Weights,
 )
+from torchvision.models.segmentation.deeplabv3 import DeepLabHead
 
 from data import train_val_loader
 from utils import get_device
@@ -59,12 +60,13 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> float:
 # ─────────────────────────────────────────────
 def build_model(freeze_backbone: bool = True) -> nn.Module:
     model = deeplabv3_resnet50(weights=DeepLabV3_ResNet50_Weights.DEFAULT)
-    model.classifier[4]     = nn.Conv2d(256, NUM_CLASSES, kernel_size=1)
-    model.aux_classifier[4] = nn.Conv2d(256, NUM_CLASSES, kernel_size=1)
+    model.aux_classifier = None
 
     if freeze_backbone:
-        for name, param in model.named_parameters():
-            param.requires_grad = "classifier" in name
+        for param in model.parameters():
+            param.requires_grad = False
+
+    model.classifier = DeepLabHead(2048, NUM_CLASSES)
 
     return model
 
@@ -236,7 +238,7 @@ def main() -> None:
     trainable = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
-    criterion = CombinedLoss()
+    criterion = nn.CrossEntropyLoss()
 
     # ── Training loop ─────────────────────────
     best_iou = 0.0
