@@ -8,7 +8,7 @@ import pandas as pd
 from rle import rle_list_to_mask
 
 class AirbusShipDetectionDataset(Dataset):
-    def __init__(self, masks_file, img_dir, sample: int|None = None):
+    def __init__(self, masks_file, img_dir, sample: int|None = None, ship_class_weight: float = 0.7):
         self.masks_file = masks_file
         self.img_dir = img_dir
         
@@ -18,7 +18,16 @@ class AirbusShipDetectionDataset(Dataset):
         self.df = self.df.groupby('ImageId')['EncodedPixels'].agg(list).reset_index()
 
         if sample: 
-            self.df = self.df.sample(sample).reset_index()
+            empty = self.df[self.df['EncodedPixels'].apply(lambda x: all(p == '' for p in x))]
+            non_empty = self.df[self.df['EncodedPixels'].apply(lambda x: any(p != '' for p in x))]
+            
+            n_empty = int(sample * (1.0 - ship_class_weight))
+            n_non_empty = sample - n_empty
+
+            empty_sample = empty.sample(n=n_empty)
+            non_empty_sample = non_empty.sample(n=n_non_empty)
+
+            self.df = pd.concat([empty_sample, non_empty_sample]).sample(frac=1).reset_index()
 
     def __len__(self):
         return len(self.df)

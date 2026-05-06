@@ -166,11 +166,10 @@ def main() -> None:
                 "val_loss":    val_loss,
                 "args":        vars(args),
             }, ckpt_path)
-            print(f"  ✓ Saved best model  (mIoU={best_iou:.4f})")
+            print(f"Saved best model  (mIoU={best_iou:.4f})")
 
     writer.close()
     print(f"\nTraining complete. Best val mIoU: {best_iou:.4f}")
-    print(f"Checkpoint saved to: {args.checkpoint_dir}/best_model.pth")
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
