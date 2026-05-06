@@ -1,8 +1,16 @@
+import os
+from datetime import datetime
+
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 from imagenet import (normalize_batch, denormalize_images)
+
+def build_summary_writer(log_dir: str) -> SummaryWriter:
+    datestr = datetime.now().isoformat(timespec='minutes')
+
+    return SummaryWriter(log_dir=os.path.join(log_dir, f"tb-{datestr}"))
 
 @torch.no_grad()
 def log_predictions(

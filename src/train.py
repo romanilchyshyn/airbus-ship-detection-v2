@@ -1,10 +1,10 @@
 import os
 import time
 import argparse
+from datetime import datetime
 
 import torch
 import torch.nn as nn
-from torch.utils.tensorboard import SummaryWriter
 from torchvision.models.segmentation import (
     deeplabv3_resnet50,
     DeepLabV3_ResNet50_Weights,
@@ -14,7 +14,11 @@ from torchvision.models.segmentation.deeplabv3 import DeepLabHead
 from data import train_val_loader
 from utils import get_device
 from imagenet import normalize_batch
-from tensorboard import (log_predictions, log_metrics)
+from tensorboardutils import (
+    build_summary_writer, 
+    log_predictions, 
+    log_metrics,
+)
 
 CLASSES     = ['ship', 'background']
 NUM_CLASSES = len(CLASSES)
@@ -99,15 +103,16 @@ def evaluate(
 
 def main() -> None:
     args = parse_args()
+    
+    datestr = datetime.now().isoformat(timespec='minutes')
 
     device = get_device()
     print(f"Device: {device}")
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
+    os.makedirs(args.log_dir, exist_ok=True)
 
-    run_name = args.run_name or f"deeplabv3_bs{args.batch_size}_{'frozen' if args.freeze_backbone else 'full'}"
-    writer   = SummaryWriter(log_dir=os.path.join(args.log_dir, run_name))
-    print(f"TensorBoard run: {run_name}")
+    writer = build_summary_writer(args.log_dir)
 
     train_loader, val_loader = train_val_loader(
         args.data_dir,
@@ -152,7 +157,7 @@ def main() -> None:
 
         if val_iou > best_iou:
             best_iou  = val_iou
-            ckpt_path = os.path.join(args.checkpoint_dir, "best_model.pth")
+            ckpt_path = os.path.join(args.checkpoint_dir, f"best_model-{datestr}.pth")
             torch.save({
                 "epoch":       epoch,
                 "model_state": model.state_dict(),
@@ -184,7 +189,6 @@ def parse_args() -> argparse.Namespace:
 
     p.add_argument("--checkpoint-dir", type=str,  default="checkpoints")
     p.add_argument("--log-dir",        type=str,  default="runs")
-    p.add_argument("--run-name",       type=str,  default=None)
     p.add_argument("--log-img-every",  type=int,  default=1)
 
     return p.parse_args()
