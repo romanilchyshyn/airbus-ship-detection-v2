@@ -13,36 +13,12 @@ from torchvision.models.segmentation.deeplabv3 import DeepLabHead
 
 from data import train_val_loader
 from utils import get_device
+from imagenet import normalize_batch
+from tensorboard import (log_predictions, log_metrics)
 
 CLASSES     = ['ship', 'background']
 NUM_CLASSES = len(CLASSES)
 
-class DiceLoss(nn.Module):
-    def __init__(self, smooth: float = 1.0):
-        super().__init__()
-        self.smooth = smooth
-
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        probs           = torch.softmax(logits, dim=1)
-        targets_one_hot = torch.zeros_like(probs).scatter_(1, targets.unsqueeze(1), 1)
-        intersection    = (probs * targets_one_hot).sum(dim=(2, 3))
-        union           = probs.sum(dim=(2, 3)) + targets_one_hot.sum(dim=(2, 3))
-        return 1 - ((2 * intersection + self.smooth) / (union + self.smooth)).mean()
-
-
-class CombinedLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.ce   = nn.CrossEntropyLoss()
-        self.dice = DiceLoss()
-
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        return self.ce(logits, targets) + self.dice(logits, targets)
-
-
-# ─────────────────────────────────────────────
-# METRICS
-# ─────────────────────────────────────────────
 def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> float:
     preds, targets = preds.view(-1), targets.view(-1)
     ious = []
@@ -54,10 +30,6 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> float:
         ious.append(((pred_c & target_c).sum().float() / union).item())
     return sum(ious) / len(ious) if ious else 0.0
 
-
-# ─────────────────────────────────────────────
-# MODEL
-# ─────────────────────────────────────────────
 def build_model(freeze_backbone: bool = True) -> nn.Module:
     model = deeplabv3_resnet50(weights=DeepLabV3_ResNet50_Weights.DEFAULT)
     model.aux_classifier = None
@@ -70,10 +42,6 @@ def build_model(freeze_backbone: bool = True) -> nn.Module:
 
     return model
 
-
-# ─────────────────────────────────────────────
-# TRAIN / EVAL
-# ─────────────────────────────────────────────
 def train_one_epoch(
     model:       nn.Module,
     loader:      torch.utils.data.DataLoader,
@@ -129,87 +97,6 @@ def evaluate(
     n = len(loader)
     return total_loss / n, total_iou / n
 
-
-# ─────────────────────────────────────────────
-# TENSORBOARD HELPERS
-# ─────────────────────────────────────────────
-
-@torch.no_grad()
-def log_predictions(
-    model: nn.Module,
-    loader: torch.utils.data.DataLoader,
-    writer: SummaryWriter,
-    epoch: int,
-    device: torch.device,
-    n: int = 1,
-) -> None:
-    model.eval()
-
-    raw_images, raw_masks = next(iter(loader))
-    raw_images = raw_images[:n]
-    raw_masks = raw_masks[:n]
-
-    images, masks = normalize_batch(raw_images, raw_masks, device)
-
-    preds = model(images)["out"].argmax(dim=1)
-
-    imgs_display = denormalize_images(images).cpu()
-
-    preds_display = preds.unsqueeze(1).float().cpu()
-    masks_display = masks.unsqueeze(1).float().cpu()
-
-    writer.add_images("preview/image", imgs_display, epoch)
-    writer.add_images("preview/pred", preds_display, epoch)
-    writer.add_images("preview/gt_mask", masks_display, epoch)
-
-
-def log_metrics(
-    writer:     SummaryWriter,
-    epoch:      int,
-    train_loss: float,
-    val_loss:   float,
-    val_iou:    float,
-    lr:         float,
-) -> None:
-    writer.add_scalars("loss", {"train": train_loss, "val": val_loss}, epoch)
-    writer.add_scalar("mIoU/val", val_iou, epoch)
-    writer.add_scalar("lr", lr, epoch)
-
-
-IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-IMAGENET_STD  = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
-
-def normalize_images(images: torch.Tensor, device: torch.device) -> torch.Tensor:
-    images = images.to(device=device, dtype=torch.float32) / 255.0
-
-    mean = IMAGENET_MEAN.to(device)
-    std = IMAGENET_STD.to(device)
-
-    images = (images - mean) / std
-
-    return images
-
-def denormalize_images(
-    images: torch.Tensor,
-) -> torch.Tensor:
-    mean = IMAGENET_MEAN.to(images.device)
-    std = IMAGENET_STD.to(images.device)
-
-    return (images * std + mean).clamp(0, 1)
-
-def normalize_batch(
-    images: torch.Tensor,
-    masks:  torch.Tensor,
-    device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    images = normalize_images(images, device)
-    masks  = masks.long().to(device)
-
-    return images, masks
-
-# ─────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────
 def main() -> None:
     args = parse_args()
 
@@ -222,7 +109,6 @@ def main() -> None:
     writer   = SummaryWriter(log_dir=os.path.join(args.log_dir, run_name))
     print(f"TensorBoard run: {run_name}")
 
-    # ── Data ──────────────────────────────────
     train_loader, val_loader = train_val_loader(
         args.data_dir,
         val_split=args.val_split,
@@ -231,16 +117,13 @@ def main() -> None:
     )
     print(f"Train: {len(train_loader) * args.batch_size} samples  |  Val: {len(val_loader) * args.batch_size} samples")
 
-    # ── Model ─────────────────────────────────
     model = build_model(freeze_backbone=args.freeze_backbone).to(device)
 
-    # ── Optimizer & scheduler ─────────────────
     trainable = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     criterion = nn.CrossEntropyLoss()
 
-    # ── Training loop ─────────────────────────
     best_iou = 0.0
 
     for epoch in range(1, args.epochs + 1):
