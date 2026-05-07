@@ -6,14 +6,18 @@ from torchvision.models.segmentation import (
 )
 from torchvision.models.segmentation.deeplabv3 import DeepLabHead
 
-def build_model(num_classes: int = 2) -> nn.Module:
+CLASSES = ['ship', 'background']
+
+def build_model() -> nn.Module:
     model = deeplabv3_resnet50(weights=DeepLabV3_ResNet50_Weights.DEFAULT)
     model.aux_classifier = None
 
     for param in model.parameters():
         param.requires_grad = False
 
-    model.classifier = DeepLabHead(2048, num_classes)
+    model.classifier = DeepLabHead(2048, len(CLASSES))
+
+    # model to device!
 
     return model
 

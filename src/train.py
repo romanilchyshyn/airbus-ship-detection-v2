@@ -8,7 +8,7 @@ import torch.nn as nn
 
 from utils import get_device
 from data import train_val_loader
-from model import build_model
+from model import (build_model, CLASSES)
 from imagenet import normalize_batch
 from tensorboardutils import (
     build_summary_writer, 
@@ -16,13 +16,10 @@ from tensorboardutils import (
     log_metrics,
 )
 
-CLASSES     = ['ship', 'background']
-NUM_CLASSES = len(CLASSES)
-
 def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> float:
     preds, targets = preds.view(-1), targets.view(-1)
     ious = []
-    for cls in range(NUM_CLASSES):
+    for cls in range(len(CLASSES)):
         pred_c, target_c = preds == cls, targets == cls
         union = (pred_c | target_c).sum().float()
         if union == 0:
