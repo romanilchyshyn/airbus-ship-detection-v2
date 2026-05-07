@@ -15,6 +15,12 @@ python3 src/train.py --sample=1000 --epochs=30 --batch-size=10 --run-name="tb-$(
 tensorboard --logdir=runs --bind_all
 ```
 
+## Predict
+
+```sh
+python3 src/predict.py --checkpoint-path="checkpoints/best_model-n.pth" --output-path="test.csv"
+```
+
 ## Dev
 
 Update `requirements.txt` with:

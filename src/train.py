@@ -5,14 +5,10 @@ from datetime import datetime
 
 import torch
 import torch.nn as nn
-from torchvision.models.segmentation import (
-    deeplabv3_resnet50,
-    DeepLabV3_ResNet50_Weights,
-)
-from torchvision.models.segmentation.deeplabv3 import DeepLabHead
 
-from data import train_val_loader
 from utils import get_device
+from data import train_val_loader
+from model import build_model
 from imagenet import normalize_batch
 from tensorboardutils import (
     build_summary_writer, 
@@ -32,19 +28,8 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> float:
         if union == 0:
             continue
         ious.append(((pred_c & target_c).sum().float() / union).item())
+        
     return sum(ious) / len(ious) if ious else 0.0
-
-def build_model(freeze_backbone: bool = True) -> nn.Module:
-    model = deeplabv3_resnet50(weights=DeepLabV3_ResNet50_Weights.DEFAULT)
-    model.aux_classifier = None
-
-    if freeze_backbone:
-        for param in model.parameters():
-            param.requires_grad = False
-
-    model.classifier = DeepLabHead(2048, NUM_CLASSES)
-
-    return model
 
 def train_one_epoch(
     model:       nn.Module,
@@ -63,7 +48,7 @@ def train_one_epoch(
 
         output = model(images)
         loss   = criterion(output["out"], masks)
-        if "aux" in output:
+        if "aux" in output: # fixme - don't use it
             loss = loss + 0.4 * criterion(output["aux"], masks)
 
         (loss / accum_steps).backward()
@@ -122,7 +107,7 @@ def main() -> None:
     )
     print(f"Train: {len(train_loader) * args.batch_size} samples  |  Val: {len(val_loader) * args.batch_size} samples")
 
-    model = build_model(freeze_backbone=args.freeze_backbone).to(device)
+    model = build_model().to(device)
 
     trainable = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=args.weight_decay)
@@ -177,8 +162,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data-dir",      type=str,   default="data")
     p.add_argument("--val-split",     type=float, default=0.15)
     p.add_argument("--sample",        type=int,   default=None)
-
-    p.add_argument("--freeze-backbone", type=bool, default=True)
 
     p.add_argument("--epochs",        type=int,   default=30)
     p.add_argument("--batch-size",    type=int,   default=10)

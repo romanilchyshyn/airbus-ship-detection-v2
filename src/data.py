@@ -100,3 +100,39 @@ def train_val_loader(
     )
 
     return train_loader, val_loader
+
+class AirbusShipDetectionDatasetTest(Dataset):
+    def __init__(self, img_dir):
+        self.img_dir = img_dir
+        self.files = os.listdir(img_dir)
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        img_name = self.files[idx]
+        img_path = os.path.join(self.img_dir, img_name)
+
+        image = decode_image(img_path)
+
+        return image, img_name
+
+def dataset_test(root: str):
+    ds = AirbusShipDetectionDatasetTest(img_dir=os.path.join(root, 'test_v2'))
+
+    return ds
+
+def test_loader(
+        root: str, 
+        batch_size=1, 
+        num_workers=4, 
+    ) -> DataLoader:
+    ds = dataset_test(root)
+
+    test_loader = DataLoader(
+        ds, 
+        batch_size=batch_size, 
+        num_workers=num_workers, 
+    )
+
+    return test_loader
