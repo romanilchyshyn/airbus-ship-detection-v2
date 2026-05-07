@@ -7,13 +7,9 @@ import torch
 import torch.nn as nn
 
 from data import train_val_loader
-from model import (build_model, CLASSES)
+from model import build_model, CLASSES
 from imagenet import normalize_batch
-from tensorboardutils import (
-    build_summary_writer, 
-    log_predictions, 
-    log_metrics,
-)
+from tensorboardutils import TensorboardLogger
 
 def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> float:
     preds, targets = preds.view(-1), targets.view(-1)
@@ -43,8 +39,6 @@ def train_one_epoch(
 
         output = model(images)
         loss   = criterion(output["out"], masks)
-        if "aux" in output: # fixme - don't use it
-            loss = loss + 0.4 * criterion(output["aux"], masks)
 
         (loss / accum_steps).backward()
 
@@ -88,8 +82,6 @@ def main() -> None:
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
 
-    writer = build_summary_writer(args.log_dir)
-
     train_loader, val_loader = train_val_loader(
         args.data_dir,
         val_split=args.val_split,
@@ -107,44 +99,41 @@ def main() -> None:
 
     best_iou = 0.0
 
-    for epoch in range(1, args.epochs + 1):
-        t0 = time.time()
+    with TensorboardLogger(args.log_dir) as tb:
+        for epoch in range(1, args.epochs + 1):
+            t0 = time.time()
 
-        train_loss        = train_one_epoch(model, train_loader, optimizer, criterion, args.accum_steps)
-        val_loss, val_iou = evaluate(model, val_loader, criterion)
-        scheduler.step()
+            train_loss = train_one_epoch(model, train_loader, optimizer, criterion, args.accum_steps)
+            val_loss, val_iou = evaluate(model, val_loader, criterion)
+            scheduler.step()
 
-        lr_now  = optimizer.param_groups[0]["lr"]
-        elapsed = time.time() - t0
+            lr_now  = optimizer.param_groups[0]["lr"]
+            elapsed = time.time() - t0
 
-        print(
-            f"Epoch {epoch:3d}/{args.epochs}  "
-            f"train_loss={train_loss:.4f}  "
-            f"val_loss={val_loss:.4f}  "
-            f"val_mIoU={val_iou:.4f}  "
-            f"lr={lr_now:.2e}  "
-            f"time={elapsed:.1f}s"
-        )
+            print(
+                f"Epoch {epoch:3d}/{args.epochs}  "
+                f"train_loss={train_loss:.4f}  "
+                f"val_loss={val_loss:.4f}  "
+                f"val_mIoU={val_iou:.4f}  "
+                f"lr={lr_now:.2e}  "
+                f"time={elapsed:.1f}s"
+            )
 
-        log_metrics(writer, epoch, train_loss, val_loss, val_iou, lr_now)
+            tb.log(model, val_loader, epoch, train_loss, val_loss, val_iou, lr_now)
 
-        if epoch % args.log_img_every == 0:
-            log_predictions(model, val_loader, writer, epoch)
+            if val_iou > best_iou:
+                best_iou  = val_iou
+                ckpt_path = os.path.join(args.checkpoint_dir, f"best_model-{datestr}.pth")
+                torch.save({
+                    "epoch":       epoch,
+                    "model_state": model.state_dict(),
+                    "optimizer":   optimizer.state_dict(),
+                    "val_iou":     val_iou,
+                    "val_loss":    val_loss,
+                    "args":        vars(args),
+                }, ckpt_path)
+                print(f"Saved best model  (mIoU={best_iou:.4f})")
 
-        if val_iou > best_iou:
-            best_iou  = val_iou
-            ckpt_path = os.path.join(args.checkpoint_dir, f"best_model-{datestr}.pth")
-            torch.save({
-                "epoch":       epoch,
-                "model_state": model.state_dict(),
-                "optimizer":   optimizer.state_dict(),
-                "val_iou":     val_iou,
-                "val_loss":    val_loss,
-                "args":        vars(args),
-            }, ckpt_path)
-            print(f"Saved best model  (mIoU={best_iou:.4f})")
-
-    writer.close()
     print(f"\nTraining complete. Best val mIoU: {best_iou:.4f}")
 
 def parse_args() -> argparse.Namespace:
@@ -162,7 +151,6 @@ def parse_args() -> argparse.Namespace:
 
     p.add_argument("--checkpoint-dir", type=str,  default="checkpoints")
     p.add_argument("--log-dir",        type=str,  default="runs")
-    p.add_argument("--log-img-every",  type=int,  default=1)
 
     return p.parse_args()
 

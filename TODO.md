@@ -1,8 +1,5 @@
 # TODO
 
-- tensorboard: extract into separate module
-    - refactor into object
-    - investigate more usable image log
 - train: 
     - evaluate loss
     - evaluate training params

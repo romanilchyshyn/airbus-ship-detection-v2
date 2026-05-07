@@ -1,53 +1,70 @@
-import os
 from datetime import datetime
+from pathlib import Path
 
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
-from imagenet import (normalize_batch, denormalize_images)
+from imagenet import normalize_batch, denormalize_images
 
-def build_summary_writer(log_dir: str) -> SummaryWriter:
-    datestr = datetime.now().isoformat(timespec='minutes')
+class TensorboardLogger:
+    def __init__(self, log_dir: str) -> None:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+        self.writer = SummaryWriter(Path(log_dir) / f"tb-{timestamp}")
 
-    return SummaryWriter(log_dir=os.path.join(log_dir, f"tb-{datestr}"))
+    def __enter__(self):
+        return self
 
-@torch.no_grad()
-def log_predictions(
-    model: nn.Module,
-    loader: torch.utils.data.DataLoader,
-    writer: SummaryWriter,
-    epoch: int,
-    n: int = 1,
-) -> None:
-    model.eval()
+    def __exit__(self, *_):
+        self.writer.close()
 
-    raw_images, raw_masks = next(iter(loader))
-    raw_images = raw_images[:n]
-    raw_masks = raw_masks[:n]
+    @torch.inference_mode()
+    def log(
+        self,
+        model: nn.Module,
+        loader,
+        epoch: int,
+        train_loss: float,
+        val_loss: float,
+        val_iou: float,
+        lr: float,
+        n: int = 1,
+    ) -> None:
+        was_training = model.training
+        model.eval()
 
-    images, masks = normalize_batch(raw_images, raw_masks)
+        try:
+            raw_images, raw_masks = next(iter(loader))
 
-    preds = model(images)["out"].argmax(dim=1)
+            raw_images = raw_images[:n]
+            raw_masks = raw_masks[:n]
 
-    imgs_display = denormalize_images(images).cpu()
+            images, masks = normalize_batch(raw_images, raw_masks)
+            preds = model(images)["out"].argmax(dim=1)
 
-    preds_display = preds.unsqueeze(1).float().cpu()
-    masks_display = masks.unsqueeze(1).float().cpu()
+            self.writer.add_images(
+                "preview/image",
+                denormalize_images(images).cpu(),
+                epoch,
+            )
+            self.writer.add_images(
+                "preview/mask",
+                masks.unsqueeze(1).float().cpu(),
+                epoch,
+            )
+            self.writer.add_images(
+                "preview/pred",
+                preds.unsqueeze(1).float().cpu(),
+                epoch,
+            )
 
-    writer.add_images("preview/image", imgs_display, epoch)
-    writer.add_images("preview/mask", masks_display, epoch)
-    writer.add_images("preview/pred", preds_display, epoch)
+        finally:
+            model.train(was_training)
 
-
-def log_metrics(
-    writer:     SummaryWriter,
-    epoch:      int,
-    train_loss: float,
-    val_loss:   float,
-    val_iou:    float,
-    lr:         float,
-) -> None:
-    writer.add_scalars("loss", {"train": train_loss, "val": val_loss}, epoch)
-    writer.add_scalar("mIoU/val", val_iou, epoch)
-    writer.add_scalar("lr", lr, epoch)
+        self.writer.add_scalars(
+            "loss",
+            {"train": train_loss, "val": val_loss},
+            epoch,
+        )
+        self.writer.add_scalar("mIoU/val", val_iou, epoch)
+        self.writer.add_scalar("lr", lr, epoch)
