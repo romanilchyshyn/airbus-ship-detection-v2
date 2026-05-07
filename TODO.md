@@ -1,7 +1,5 @@
 # TODO
 
-- device ovnership (use util instad of params)
-- move classes to model
 - tensorboard: extract into separate module
     - refactor into object
     - investigate more usable image log

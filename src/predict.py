@@ -6,25 +6,22 @@ import pandas as pd
 from model import load_model
 from data import test_loader
 from imagenet import normalize_images
-from utils import get_device
 from rle import mask_to_rle_list
 
 def main():
     args = parse_args()
 
-    device = get_device()
+    model = load_model(args.checkpoint_path)
 
-    m = load_model(args.checkpoint_path, device)
-
-    l = test_loader(args.data_dir, batch_size=12)
+    loader = test_loader(args.data_dir, batch_size=12)
 
     rows = []
 
     with torch.no_grad():
-        for images, names in l:
+        for images, names in loader:
             print(f"predicting images: {names}")
-            images = normalize_images(images, device)
-            preds = m(images)["out"].argmax(dim=1)
+            images = normalize_images(images)
+            preds = model(images)["out"].argmax(dim=1)
 
             for p, n in zip(preds, names):
                 rle_list = mask_to_rle_list(p.cpu())

@@ -18,7 +18,6 @@ def log_predictions(
     loader: torch.utils.data.DataLoader,
     writer: SummaryWriter,
     epoch: int,
-    device: torch.device,
     n: int = 1,
 ) -> None:
     model.eval()
@@ -27,7 +26,7 @@ def log_predictions(
     raw_images = raw_images[:n]
     raw_masks = raw_masks[:n]
 
-    images, masks = normalize_batch(raw_images, raw_masks, device)
+    images, masks = normalize_batch(raw_images, raw_masks)
 
     preds = model(images)["out"].argmax(dim=1)
 

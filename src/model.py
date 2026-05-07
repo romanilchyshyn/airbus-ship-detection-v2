@@ -6,6 +6,8 @@ from torchvision.models.segmentation import (
 )
 from torchvision.models.segmentation.deeplabv3 import DeepLabHead
 
+from device import get_device
+
 CLASSES = ['ship', 'background']
 
 def build_model() -> nn.Module:
@@ -17,15 +19,15 @@ def build_model() -> nn.Module:
 
     model.classifier = DeepLabHead(2048, len(CLASSES))
 
-    # model to device!
+    model.to(get_device())
 
     return model
 
-def load_model(path: str, device: str) -> nn.Module:
+def load_model(path: str) -> nn.Module:
     model = build_model()
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['model_state']) # fixme: key is duplicated
-    model.to(device)
+    model.to(get_device())
     model.eval()
 
     return model
