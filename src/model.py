@@ -18,7 +18,7 @@ def build_model() -> nn.Module:
         param.requires_grad = False
 
     model.classifier = DeepLabHead(2048, len(CLASSES))
-
+    model = torch.compile(model)
     model.to(get_device())
 
     return model

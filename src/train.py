@@ -10,6 +10,7 @@ from data import train_val_loader
 from model import build_model, CLASSES
 from imagenet import normalize_batch
 from tensorboardutils import TensorboardLogger
+from device import get_device
 
 def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> float:
     preds, targets = preds.view(-1), targets.view(-1)
@@ -28,6 +29,7 @@ def train_one_epoch(
     loader:      torch.utils.data.DataLoader,
     optimizer:   torch.optim.Optimizer,
     criterion:   nn.Module,
+    scaler:      torch.amp.GradScaler,
     accum_steps: int = 1,
 ) -> float:
     model.train()
@@ -37,21 +39,17 @@ def train_one_epoch(
     for i, (images, masks) in enumerate(loader):
         images, masks = normalize_batch(images, masks)
 
-        output = model(images)
-        loss   = criterion(output["out"], masks)
+        with torch.autocast(device_type=get_device().type):
+            loss = criterion(model(images)["out"], masks) / accum_steps
 
-        (loss / accum_steps).backward()
+        scaler.scale(loss).backward()
 
         if (i + 1) % accum_steps == 0:
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             optimizer.zero_grad()
 
-        total_loss += loss.item()
-
-    # Handle leftover batches
-    if len(loader) % accum_steps != 0:
-        optimizer.step()
-        optimizer.zero_grad()
+        total_loss += loss.item() * accum_steps
 
     return total_loss / len(loader)
 
@@ -77,7 +75,7 @@ def evaluate(
 def main() -> None:
     args = parse_args()
     
-    datestr = datetime.now().isoformat(timespec='minutes')
+    datestr = datetime.now().strftime("%Y%m%d-%H%M")
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
@@ -96,6 +94,7 @@ def main() -> None:
     optimizer = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     criterion = nn.CrossEntropyLoss()
+    scaler = torch.amp.GradScaler()
 
     best_iou = 0.0
 
@@ -103,7 +102,7 @@ def main() -> None:
         for epoch in range(1, args.epochs + 1):
             t0 = time.time()
 
-            train_loss = train_one_epoch(model, train_loader, optimizer, criterion, args.accum_steps)
+            train_loss = train_one_epoch(model, train_loader, optimizer, criterion, scaler, args.accum_steps)
             val_loss, val_iou = evaluate(model, val_loader, criterion)
             scheduler.step()
 
