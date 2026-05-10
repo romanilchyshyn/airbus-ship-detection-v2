@@ -26,7 +26,7 @@ def build_model() -> nn.Module:
 def load_model(path: str) -> nn.Module:
     model = build_model()
     checkpoint = torch.load(path)
-    model.load_state_dict(checkpoint['model_state']) # fixme: key is duplicated
+    model.load_state_dict(checkpoint['model_state'])
     model.to(get_device())
     model.eval()
 

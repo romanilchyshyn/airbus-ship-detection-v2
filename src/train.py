@@ -5,12 +5,12 @@ from datetime import datetime
 
 import torch
 import torch.nn as nn
+import torchvision.transforms.functional as TF
 
 from data import train_val_loader
 from model import build_model, CLASSES
 from imagenet import normalize_batch
 from tensorboardutils import TensorboardLogger
-from device import get_device
 
 def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> float:
     preds, targets = preds.view(-1), targets.view(-1)
@@ -19,8 +19,8 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> float:
     pred_oh   = preds.unsqueeze(0)   == torch.arange(num_classes, device=preds.device).unsqueeze(1)
     target_oh = targets.unsqueeze(0) == torch.arange(num_classes, device=preds.device).unsqueeze(1)
 
-    intersection = (pred_oh & target_oh).sum(dim=1).float()  # [C]
-    union        = (pred_oh | target_oh).sum(dim=1).float()  # [C]
+    intersection = (pred_oh & target_oh).sum(dim=1).float()
+    union        = (pred_oh | target_oh).sum(dim=1).float()
 
     present = union > 0
     if not present.any():
@@ -55,6 +55,18 @@ def evaluate(
 
     return total_loss.item() / total_samples, total_iou / total_samples
 
+def random_rotate_batch(
+    images:      torch.Tensor,
+    masks:       torch.Tensor,
+    max_degrees: float = 30.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    angle   = torch.empty(1).uniform_(-max_degrees, max_degrees).item()
+    
+    rot_img = TF.rotate(images, angle, interpolation=TF.InterpolationMode.BILINEAR)
+    rot_msk = TF.rotate(masks,  angle, interpolation=TF.InterpolationMode.NEAREST)
+    
+    return torch.cat([images, rot_img]), torch.cat([masks, rot_msk])
+
 def train_one_epoch(
     model:       nn.Module,
     loader:      torch.utils.data.DataLoader,
@@ -71,6 +83,7 @@ def train_one_epoch(
  
     for i, (images, masks) in enumerate(loader):
         images, masks = normalize_batch(images, masks)
+        images, masks = random_rotate_batch(images, masks)
  
         with torch.autocast(device_type=device_type):
             loss = criterion(model(images)["out"], masks) / accum_steps
@@ -140,7 +153,7 @@ def main() -> None:
                     "val_loss":    val_loss,
                     "args":        vars(args),
                 }, ckpt_path)
-                
+
                 print(f"Saved best model (mIoU={best_iou:.4f})")
  
     print(f"\nTraining complete. Best val mIoU: {best_iou:.4f}")
