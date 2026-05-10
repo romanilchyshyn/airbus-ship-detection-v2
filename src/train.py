@@ -14,15 +14,46 @@ from device import get_device
 
 def compute_iou(preds: torch.Tensor, targets: torch.Tensor) -> float:
     preds, targets = preds.view(-1), targets.view(-1)
-    ious = []
-    for cls in range(len(CLASSES)):
-        pred_c, target_c = preds == cls, targets == cls
-        union = (pred_c | target_c).sum().float()
-        if union == 0:
-            continue
-        ious.append(((pred_c & target_c).sum().float() / union).item())
-        
-    return sum(ious) / len(ious) if ious else 0.0
+    num_classes = len(CLASSES)
+
+    pred_oh   = preds.unsqueeze(0)   == torch.arange(num_classes, device=preds.device).unsqueeze(1)
+    target_oh = targets.unsqueeze(0) == torch.arange(num_classes, device=preds.device).unsqueeze(1)
+
+    intersection = (pred_oh & target_oh).sum(dim=1).float()  # [C]
+    union        = (pred_oh | target_oh).sum(dim=1).float()  # [C]
+
+    present = union > 0
+    if not present.any():
+        return 0.0
+
+    return (intersection[present] / union[present]).mean().item() 
+
+@torch.no_grad()
+def evaluate(
+    model:     nn.Module,
+    loader:    torch.utils.data.DataLoader,
+    criterion: nn.Module,
+) -> tuple[float, float]:
+    model.eval()
+    device = next(model.parameters()).device
+
+    total_loss = torch.tensor(0.0, device=device)
+    total_iou = 0.0
+    total_samples = 0
+
+    for images, masks in loader:
+        images, masks = normalize_batch(images, masks)
+        n = images.size(0)
+
+        logits       = model(images)["out"]
+        total_loss  += criterion(logits, masks) * n
+        total_iou   += compute_iou(logits.argmax(dim=1), masks) * n
+        total_samples += n
+
+    if total_samples == 0:
+        return 0.0, 0.0
+
+    return total_loss.item() / total_samples, total_iou / total_samples
 
 def train_one_epoch(
     model:       nn.Module,
@@ -52,25 +83,6 @@ def train_one_epoch(
         total_loss += loss.item() * accum_steps
 
     return total_loss / len(loader)
-
-
-@torch.no_grad()
-def evaluate(
-    model:     nn.Module,
-    loader:    torch.utils.data.DataLoader,
-    criterion: nn.Module,
-) -> tuple[float, float]:
-    model.eval()
-    total_loss = total_iou = 0.0
-
-    for images, masks in loader:
-        images, masks = normalize_batch(images, masks)
-        logits = model(images)["out"]
-        total_loss += criterion(logits, masks).item()
-        total_iou  += compute_iou(logits.argmax(dim=1).cpu(), masks.cpu())
-
-    n = len(loader)
-    return total_loss / n, total_iou / n
 
 def main() -> None:
     args = parse_args()
