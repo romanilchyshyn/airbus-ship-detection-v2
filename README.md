@@ -8,7 +8,7 @@
 
 In project root:
 ```sh
-python3 src/train.py --sample=1000 --epochs=30 --batch-size=10 --run-name="tb-$(date +"%Y-%m-%dT%H:%M:%S%z")"
+python3 src/train.py --sample=20000 --epochs=40 --batch-size=18
 ```
 
 ```sh
@@ -40,7 +40,3 @@ unzip data.zip -d data
 ```
 
 ---
-
-Train on 4060 performance:
-Sampled dataset 5k   items - 10m  per epoch.      * 30 = 300m   ~ 5h
-Real dataset    200k items ~ 400m per epoch (7h). * 30 = 12000m ~ 8d
